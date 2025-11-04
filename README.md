@@ -1,2 +1,240 @@
-# eopgp-chdm
-Change detection mapping ML service, as a module for eopgp
+# NOA/Beyond Change Detection Mapping (NOAChDM) processor
+
+Change detection mapping ML service, as a module for NOA-Beyond Earth Observation Product Generation Platform
+
+## Using the processor
+
+The NOAChDM processor can be executed as:
+- Standalone [**Cli application**](#standalone-cli-execution) or
+- Inside a [**Container**](#docker-execution)
+- As a container, inside a Kubernetes environment with kafka, with a postgres database. This is a Beyond specific setup, where a user can instantiate NOAChDM and request the production of a single product.
+- As a microservice inside a Kubernetes environment with kafka, with a postgres database. Same as above, but now it can be deployed as a service: Product Generation as a Service (PGaaS). The output is stored in an (envvar) s3 bucket. Please find info for that in section [PGaaS](#pgaas)
+
+## Standalone CLI execution
+
+1. Use your favorite flavor of virtual environment, e.g. conda:
+    - Create/activate the environment:
+        - Execute `conda create -n noa-chdm python==3.11.14`
+        - Execute `conda activate noa-chdm`
+2. Then:
+
+```
+    cd eoProcessors/noa-change-detection-mapping
+```
+and install necessary requirements inside your virtual environment:
+```
+pip install -r requirements.txt
+```
+
+3. You are ready to execute the cli script:
+
+```
+python noachdm/cli.py [command] [config/config_service.json] (config valid for PGaaS only)
+```
+
+Available commands are:
+
+ - `produce` - Local execution
+ - `noa_pgaas_chdm` - Product Generation as a Service (PGaaS)
+
+### Config file for PGaaS
+The config file *should* be placed inside `eoProcessors/noa-change-detection-mapping/config`, but of course you could use any path.
+Please check the [Config](#Config-file-parameters) section regarding config file specification.
+
+## Docker execution
+
+1. Install Docker: https://docs.docker.com/get-docker/
+2. Navigate to the folder 
+```
+    cd eoProcessors/noa-change-detection-mapping
+```
+3. Then:
+
+```
+docker build -t noa-chdm .
+```
+
+4. (PGaaS only) Edit `config/config_service.json` (or create a new one)
+
+5. Execute:
+
+5.1
+
+    ```
+    docker run -it \
+    -v [./data]:/app/data \
+    --entrypoint /bin/bash \
+    noa-chdm
+    ```
+
+to enter into the container and execute the cli application from there:
+`python noachdm/cli.py produce -v [from_path] [to_path]`
+
+
+5.2 Execute the command leaving the container when the command is completed:
+
+```
+docker run -it \
+-v [./data]:/app/data \
+noa-chdm produce -v [from_path] [to_path]
+```
+
+### PGaaS
+This is a microservice which reads kafka messages for eoPaths containing the input items, and outputs the result in an s3 bucket.
+**5.3 Run service:**
+**5.3.1 Env vars**
+You need to provide the following ENV variables:
+
+```
+CREODIAS_S3_ACCESS_KEY=NONE
+CREODIAS_S3_SECRET_KEY=NONE
+CREODIAS_REGION=WAW4-1
+CREODIAS_ENDPOINT=https://s3.waw4-1.cloudferro.com
+CREODIAS_S3_BUCKET_PRODUCT_OUTPUT=noa
+```
+
+As you can see there are some default vars for endpoints and bucket.
+Please setup accordingly
+
+---
+
+**5.3.2 Execute**
+
+```
+docker run -it \
+-v [./data]:/app/data \
+-v [./config/config_service.json]:/app/config/config_service.json \
+noa-chdm noa-pgaas-chdm -v config/config_service.json
+```
+
+Also note that the PGaaS listens on the `noa.chdm.request` kafka topic and replies to the `noa.chdm.response` kafka topic.
+
+Please note that in the aforementioned commands you can replace:
+    * `[./data]` with the folder where the downloaded data will be stored. The default location is "./data"
+    * `[./config/config_service.json]` with the local location of your configuration file. In that way you will use the local edited file instead of the container one. If you have edited the already present config file before building the container, leave it as is is.
+
+## Config file parameters
+
+Take a look at the sample config.json. 
+```
+[
+    {
+        ...
+    }
+]
+```
+
+## Cli options
+
+Cli can be executed with the following:
+
+- Commands
+    * `produce` - Produce change detection mapping from `[from_path]` rasters to `[to_path]` rasters.
+    * `noa-pgaas-chdm` - PGaaS. Listen to kafka topics for orders.
+- Options
+    * `--output_path` Custom download location. Default is `.data`
+    * `-v`, `--verbose` Shows the verbose output
+    * `--log LEVEL (INFO, DEBUG, WARNING, ERROR)` Shows the logs depending on the selected `LEVEL`
+- Arguments
+    * `from_path` - Necessary argument for the produce command, indicating "from" date
+    * `to_path` - Necessary argument for the produce command, indicating "to" date
+    * `config_file` - Necessary argument for PGaaS, indicating which config file will be used.
+
+## Examples
+
+## Tests
+
+Execute 
+```
+pytest .
+```
+on  `eoProcessors/noa-change-detection-mapping`  folder
+
+or
+
+```
+docker run -it --entrypoint pytest noa-chdm
+```
+
+for the container
+
+## Zarr Output Option
+
+The NOA Change Detection Mapping processor supports also Zarr as an alternative output format to traditional GeoTIFF or Cloud-Optimized GeoTIFF (COG).
+This feature enables faster, cloud-native access to analysis-ready EO data products, particularly for distributed or large-scale processing pipelines within ESA and DestinE environments.
+
+### Why Zarr?
+
+Zarr is a chunked, compressed, N-dimensional array format designed for scalable storage and parallel I/O.
+It is natively supported by tools such as xarray, dask, Zarr-Python along with the Pangeo ecosystem, making it ideal for massive Earth Observation datasets.
+
+#### Key advantages include:
+
+- Cloud-native architecture, enables in this way direct S3 access without downloading full rasters.
+
+- Parallel access and computation, which enhances the distributed analytics on HPC enviroments.
+
+- Lazy loading and chunking, giving the potential for accessing only relevant data subsets, minimizing I/O overhead.
+
+- Compression and encoding flexibility, ideal for efficient storage with customizable codecs.
+
+- Interoperability as it is compatible with xarray and dask
+
+### Data Variables Stored in the Zarr Dataset
+
+The Zarr output consists of the main data variables generated by the processor:
+
+| Variable | Description |
+|:----------|:-------------|
+| **change** | Binary or categorical change detection mask derived from the differencing of pre- and post-event optical indices (e.g., dNBR, dNDVI). |
+| **score** | Continuous confidence layer expressing the intensity or likelihood of detected changes, representing model logits or scaled probabilities. |
+
+Both variables are stored as separate Zarr arrays under a unified dataset, allowing selective access and independent analysis.
+Spatial coordinates (x, y) and temporal metadata (time_start, time_end, period) are also included to maintain full geospatial context.
+
+### Encoding and Compression
+
+The NOAChDM processor uses a default Blosc compressor (LZ4 or Zstd backend) for optimal speed–compression balance.
+Each data variable (e.g., change, score) is encoded separately, with its own metadata and coordinate references.
+
+Example:
+```
+encoding = {
+    "change": {"compressor": Blosc(cname="zstd", clevel=3, shuffle=Blosc.BITSHUFFLE)},
+    "score": {"compressor": Blosc(cname="zstd", clevel=3, shuffle=Blosc.BITSHUFFLE)},
+}
+```
+These parameters can be fine-tuned depending on dataset size, network bandwidth and intended analysis workflows.
+
+### Upload to Cloud Storage
+
+Zarr outputs can be seamlessly uploaded to S3-compatible object storage (e.g., CREODIAS, WEkEO or DestinE Data Lake) using built-in utilities:
+
+```
+upload_zarr_folder(
+    local_zarr_path="output/test_chdm_result.zarr",
+    auth=aws_auth,
+    endpoint="https://s3.waw4-1.cloudferro.com",
+    bucket_name="noa",
+    prefix="chdm/products/",
+    max_workers=max_workers
+)
+```
+Once uploaded, products become instantly queryable, e.g. via xarray:
+
+```
+import xarray as xr
+ds = xr.open_zarr("s3://noa/chdm/products/test_chdm_result.zarr", consolidated=True)
+```
+
+### The powerful combo of STAC and Zarr
+
+Data consumers often raise questions such as:
+
+- How can I find datasets relevant to my work?
+- I know which dataset I need , but how can I find it or/and access it?
+
+A Zarr store hosted on S3 makes data accessible, but not necessarily findable and therefore not fully answer the abovementioned questions. Users must already know the dataset’s exact name and location. This limits discoverability, which is a key element of the FAIR principles (Findable, Accessible, Interoperable, Reusable).
+
+However, if that same Zarr store were indexed via a STAC catalog, users could easily search for terms like `land surface temperature` and quickly trace the dataset, along with the required details on how to access it.
+
