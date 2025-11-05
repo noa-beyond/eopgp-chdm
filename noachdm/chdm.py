@@ -21,6 +21,11 @@ class ChDM:
     Creates ChDM products.
 
     Methods:
+        produce: Produce the ChDM product, from two paths (pre-post change), which include
+        three (3) Sentinel2 rgb bands each of the same area, for numerous scenes
+
+        produce_from_items_lists: same as produce, but create a mosaic first of individual
+        adjacent tiles.
     """
 
     def __init__(
@@ -56,16 +61,23 @@ class ChDM:
         """Get config"""
         return self._config
 
-    def produce(self, from_path, to_path):
+    def produce(self, from_path: pathlib.Path, to_path: pathlib.Path):
         """
-        Could accept path full of tifs
+        Produce the prediction tiffs and zarr, from pre and post change paths
+
+        Parameters:
+            from_path (pathlib.Path): Pre-change folder where RGB S2 bands are located
+            to_path (pathlib.Path): Post-change folder where RGB S2 bands are located
+
+        Returns:
+            product_path (str): The s3 path of output products
         """
         dataset = chdm_utils.SentinelChangeDataset(pre_dir=from_path, post_dir=to_path)
-        # getting the trained local model
+        # getting the trained local model. static
         trained_model_path = os.path.join(
             os.path.dirname(__file__), "models_checkpoints", "BIT_final_refined.pth"
         )
-        self.logger.info("Starting prediction")
+        self.logger.info("Starting prediction...")
         product_path = chdm_utils.predict_all_scenes_to_mosaic(
             model_weights_path=trained_model_path,
             dataset=dataset,
@@ -78,12 +90,13 @@ class ChDM:
 
     def produce_from_items_lists(
         self,
-        items_from,
-        items_to,
+        items_from: list[str],
+        items_to: list[str],
         bbox: tuple[float, float, float, float]
     ):
         """
-        Must accept list of s3 uris probably
+        Accepts lists of paths (str) to make a mosaic from
+        and then proceeds to prediction generation .
         """
         self.logger.info("Processing incoming items lists")
         self.logger.debug("Items from: %s", items_from)

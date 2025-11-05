@@ -85,6 +85,9 @@ def crop_and_make_mosaic(
         items_paths (list[str|Path]): the list of paths to be cropped and merged
         bbox (tuple[float, float, float, float]): Bbox to be cropped against
         output_path (pathlib.Path): Output directory to store mosaics
+
+    Returns:
+        output_filename (str): Output mosaic filename
     """
 
     bands = ["B02", "B03", "B04"]
@@ -92,7 +95,6 @@ def crop_and_make_mosaic(
         a_filename = None
         cropped_list = []
         for path in items_paths:
-            resolved_path = path
             granule_path = pathlib.Path(path, "GRANULE")
             dirs = [d for d in granule_path.iterdir() if d.is_dir]
             resolved_path = pathlib.Path(granule_path, dirs[0], "IMG_DATA", "R10m")
@@ -287,7 +289,7 @@ def predict_all_scenes_to_mosaic(
             x_shift = pred_patch_logits.shape[1]
             y = min(y, h - y_shift)
             x = min(x, w - x_shift)
-            full_pred_logits[y: y + y_shift, x: x + x_shift] = pred_patch_logits
+            full_pred_logits[y : y + y_shift, x : x + x_shift] = pred_patch_logits
 
         full_pred_logits = full_pred_logits.astype(np.float32)
 
@@ -367,11 +369,14 @@ def predict_all_scenes_to_mosaic(
                 add_time_dim=True,
                 time_coord="start",
             )
-            logger.info(f"Zarr stacked at {zarr_path}")
+            logger.info("Zarr stacked at %s", str(zarr_path))
 
         except Exception as e:
             logger.exception(
-                f"Failed to build Zarr from {output_path_pred} and {output_path_logits}: {e}"
+                "Failed to build Zarr for %s and %s: %s",
+                output_path_pred.name,
+                output_path_logits.name,
+                e,
             )
 
         s3_upload_path = _upload_to_s3(output_path_pred, output_path_logits, zarr_path)
@@ -462,7 +467,7 @@ def crop_to_reference(reference_path: pathlib.Path, raster_path: pathlib.Path):
         try:
             data = src.read(window=window, boundless=True, fill_value=ref_nodata)
         except Exception as e:
-            raise RuntimeError(f"Error reading {raster_path.name}: {e}")
+            raise RuntimeError(f"Error reading {raster_path.name}") from e
 
         transform = src.window_transform(window)
         profile = src.profile.copy()
@@ -509,9 +514,12 @@ def stack_geotiffs_to_zarr(
     logger = logging.getLogger(__name__)
 
     logger.info(
-        f"Stacking GeoTIFFs to Zarr: pred={pred_path} logits={logits_path} -> {out_zarr}"
+        "Stacking GeoTIFFs to Zarr: pred=%s logits=%s -> %s",
+        pred_path.name,
+        logits_path.name,
+        out_zarr.name,
     )
-    logger.debug(f"Chunking configured as (y, x)={chunks}")
+    logger.debug("Chunking configured as (y, x)=%s", chunks)
 
     crop_to_reference(pred_path, logits_path)
 
@@ -528,9 +536,13 @@ def stack_geotiffs_to_zarr(
         .astype("uint8")
     )
     logger.debug(
-        f"Opened rasters: pred shape={predictions.shape}, logits shape={logits.shape}"
+        "Opened rasters: pred shape=%s, logits shape=%s",
+        str(predictions.shape),
+        str(logits.shape),
     )
-    logger.debug(f"CRS: pred={predictions.rio.crs}, logits={logits.rio.crs}")
+    logger.debug(
+        "CRS: pred=%s, logits=%s", str(predictions.rio.crs), str(logits.rio.crs)
+    )
 
     # Reproject/align if needed (shouldn't be, after crop)
     if logits.rio.crs != predictions.rio.crs or logits.shape != predictions.shape:
@@ -575,7 +587,7 @@ def stack_geotiffs_to_zarr(
             )
 
         ds = ds.expand_dims({"time": [t]})
-        logger.debug(f"Added time dim with coord={time_coord} value={t}")
+        logger.debug("Added time dim with coord=%s value=%s", time_coord, t)
 
     # Compression --> chunked Zarr
     compressor = Blosc(cname="zstd", clevel=3, shuffle=Blosc.BITSHUFFLE)
@@ -585,10 +597,10 @@ def stack_geotiffs_to_zarr(
     }
 
     out_zarr = pathlib.Path(out_zarr)
-    logger.info(f"Writing Zarr -> {out_zarr}")
+    logger.info("Writing Zarr -> %s ", (out_zarr))
 
     ds.to_zarr(out_zarr, mode="w", consolidated=True, encoding=encoding)
-    logger.info(f"Zarr write complete: {out_zarr}")
+    logger.info("Zarr write complete: %s", out_zarr)
 
     return out_zarr
 
@@ -605,7 +617,7 @@ def upload_zarr_folder(
     Upload a zarr directory to S3
 
     Parameters:
-        local_zarr_path (str): Path to the local .zarr directory
+        local_zarr_path (pathlib.Path): Path to the local .zarr directory
         auth (requests_aws4auth.AWS4Auth): authentication instance
         endpoint (str): Base endpoint URL
         bucket_name (str): Bucket name
@@ -625,8 +637,13 @@ def upload_zarr_folder(
     upload_tasks.sort(key=lambda x: x[0].endswith(".zmetadata"))
 
     logger.info(
-        f"Uploading {len(upload_tasks)} files from {local_zarr_path} "
-        f"to {endpoint}/{bucket_name}/{prefix}/{prefix}.zarr/"
+        "Uploading %d files from %s to %s/%s/%s/%s.zarr/",
+        len(upload_tasks),
+        local_zarr_path.name,
+        endpoint,
+        bucket_name,
+        prefix,
+        prefix,
     )
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -638,9 +655,11 @@ def upload_zarr_folder(
             path, url = futures[future]
             try:
                 future.result()
-                logger.info(f"Uploaded: {os.path.relpath(path, local_zarr_path)}")
+                logger.info("Uploaded: %s", os.path.relpath(path, local_zarr_path))
             except Exception as e:
-                logger.info(f"Failed: {os.path.relpath(path, local_zarr_path)} — {e}")
+                logger.info(
+                    "Failed: %s - %s", os.path.relpath(path, local_zarr_path), e
+                )
     logger.info("Zarr uploaded successfully.")
 
 
@@ -716,6 +735,8 @@ def _upload_file(local_path, url, auth):
     with open(local_path, "rb") as f:
         file_data = f.read()
     headers = {"Content-Length": str(len(file_data))}
-    response = requests.put(url, headers=headers, auth=auth, data=file_data)
+    response = requests.put(
+        url, headers=headers, auth=auth, data=file_data, timeout=360
+    )
     response.raise_for_status()
     return url

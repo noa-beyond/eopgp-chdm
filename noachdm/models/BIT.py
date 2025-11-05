@@ -1,10 +1,7 @@
 import torch
 import torch.nn as nn
-from torch.optim import lr_scheduler
 from einops import rearrange
 import logging
-
-import functools
 
 import noachdm.models.resnet as resnet_model
 from noachdm.models.help_funcs import Transformer, TransformerDecoder, TwoLayerConv2d
@@ -14,68 +11,6 @@ from noachdm.models.help_funcs import Transformer, TransformerDecoder, TwoLayerC
 # Helper Functions
 ###############################################################################
 logger = logging.getLogger(__name__)
-
-
-def get_scheduler(optimizer, args):
-    """Return a learning rate scheduler
-
-    Parameters:
-        optimizer           --  the optimizer of the network
-        args (option class) --  stores all the experiment flags;
-                                needs to be a subclass of BaseOptions
-                                opt.lr_policy is the name of learning
-                                rate policy: linear | step | plateau | cosine
-
-    For 'linear', we keep the same learning rate for the first <opt.niter> epochs
-    and linearly decay the rate to zero over the next <opt.niter_decay> epochs.
-    For other schedulers (step, plateau, and cosine), we use the default PyTorch
-    schedulers.
-    See https://pytorch.org/docs/stable/optim.html for more details.
-    """
-    if args.lr_policy == "linear":
-
-        def lambda_rule(epoch):
-            lr_l = 1.0 - epoch / float(args.max_epochs + 1)
-            return lr_l
-
-        scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_rule)
-    elif args.lr_policy == "step":
-        step_size = args.max_epochs // 3
-        # args.lr_decay_iters
-        scheduler = lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=0.1)
-    else:
-        return NotImplementedError(
-            "learning rate policy [%s] is not implemented", args.lr_policy
-        )
-    return scheduler
-
-
-class Identity(nn.Module):
-    def forward(self, x):
-        return x
-
-
-def get_norm_layer(norm_type="instance"):
-    """Return a normalization layer
-
-    Parameters:
-        norm_type (str) -- the name of the normalization layer: batch | instance | none
-
-    For BatchNorm, we use learnable affine parameters and track
-    running statistics (mean/stddev).
-    For InstanceNorm, we do not use learnable affine parameters.
-    We do not track running statistics.
-    """
-    if norm_type == "batch":
-        return functools.partial(nn.BatchNorm2d, affine=True, track_running_stats=True)
-    elif norm_type == "instance":
-        return functools.partial(
-            nn.InstanceNorm2d, affine=False, track_running_stats=False
-        )
-    elif norm_type == "none":
-        return Identity()
-    else:
-        raise NotImplementedError("normalization layer [%s] is not found" % norm_type)
 
 
 def init_weights(net, init_type="normal", init_gain=0.02):
@@ -107,7 +42,7 @@ def init_weights(net, init_type="normal", init_gain=0.02):
                 nn.init.orthogonal_(m.weight.data, gain=init_gain)
             else:
                 raise NotImplementedError(
-                    "initialization method [%s] is not implemented" % init_type
+                    f"initialization method [{init_type}] is not implemented"
                 )
             if hasattr(m, "bias") and m.bias is not None:
                 nn.init.constant_(m.bias.data, 0.0)
@@ -118,11 +53,11 @@ def init_weights(net, init_type="normal", init_gain=0.02):
             nn.init.normal_(m.weight.data, 1.0, init_gain)
             nn.init.constant_(m.bias.data, 0.0)
 
-    logger.info("Initialize network with %s" % init_type)
+    logger.info("Initialize network with %s", init_type)
     net.apply(init_func)  # apply the initialization function <init_func>
 
 
-def init_net(net, init_type="normal", init_gain=0.02, gpu_ids=[]):
+def init_net(net, init_type="normal", init_gain=0.02, gpu_ids=None):
     """
     Initialize a network:
         1. register CPU/GPU device (with multi-GPU support);
@@ -145,7 +80,7 @@ def init_net(net, init_type="normal", init_gain=0.02, gpu_ids=[]):
     return net
 
 
-def define_G(net_G, init_type="normal", init_gain=0.02, gpu_ids=[], input_nc=3):
+def define_G(net_G, init_type="normal", init_gain=0.02, gpu_ids=None, input_nc=3):
     if net_G == "base_resnet18":
         net = ResNet(input_nc=input_nc, output_nc=2, output_sigmoid=False)
 

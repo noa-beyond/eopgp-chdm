@@ -47,7 +47,7 @@ PROCESSOR = "[NOA-ChDM]"
     help=(
         """
         Change Detection Mapping EO Processor.
-        Calculates changes from RGB (2,3,4) Sentinel 2 bands
+        ML Inference from RGB (2,3,4) Sentinel 2 bands
         """
     )
 )
