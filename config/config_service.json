@@ -1,0 +1,9 @@
+{
+    "group_id": "chdm-group-request",
+    "topics_consumer": ["noa.chdm.request"],
+    "topic_producer": "noa.chdm.response",
+    "num_partitions": 2,
+    "replication_factor": 3,
+    "kafka_bootstrap_servers": "kafka1:9092,kafka2:9092,kafka3:9092",
+    "kafka_request_group_id": "chdm-group-request"
+}
